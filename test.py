@@ -90,6 +90,7 @@ class CheckMos(object):
 			
 			ia = f2n.read_fits(os.path.join(self.dirpath, "BIAS_{}.fits".format(chipid)))
 			si = f2n.SkyImage(ia, 0.0, 1.0)
+			si.rebin(10, method="max")
 			f2n.draw_sky_image(ax, si)
 		
 			ax.text(0.5, 0.1, "{}".format(chipid),
