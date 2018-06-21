@@ -102,10 +102,10 @@ class CheckMos(object):
 				si.rebin(10, method="max")
 				si.set_z(0.0, 2.0)
 			elif self.kind == "DARK":
-				si.rebin(10, method="median")
+				si.rebin(10, method="mean")
 				si.set_z(0.0, 5.0)
 			else:
-				si.rebin(10, method="median")
+				si.rebin(10, method="mean")
 				si.set_z(10000, 22000)
 				
 			f2n.draw_sky_image(ax, si)
@@ -214,13 +214,13 @@ def update_all(kidsdir, workdir, lastn=None):
 	#update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn)
 	
 	# Masterdark
-	#update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn)
+	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn)
 
 	# Skyflat
-	#update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn)
+	update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn)
 
 	# Illumination correction
-	#update_illum_correction(kidsdir, workdir, lastn)
+	update_illum_correction(kidsdir, workdir, lastn)
 
 	# Zp calib
 	update_zeropoint_calib(kidsdir, workdir, lastn)
