@@ -1,14 +1,14 @@
 """
 Module to generate quality-control (QC) checkplots for the prereduction of KiDS, on a run-by-run basis
 
-In case of questions, contact the author, Malte Tewes, at mtewes@astro.uni-bonn.de 
+In case of questions, contact me, Malte Tewes, at mtewes@astro.uni-bonn.de 
 """
 
 import os
 import glob
 import shutil
 import re
-import f2n
+import sky_image_plot as f2n
 import matplotlib
 import matplotlib.pyplot as plt
 
