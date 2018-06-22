@@ -86,8 +86,8 @@ class CheckMos(object):
 			right = 1.0,
 			bottom = 0.0,
 			top = 1.0,
-			wspace = 0.03,
-			hspace = 0.03
+			wspace = 0.0,
+			hspace = 0.0
 		)
 		fig = plt.figure(figsize=(figw, figh), subplotpars=subplotpars)
 		
@@ -100,13 +100,13 @@ class CheckMos(object):
 			si = f2n.SkyImage(ia)
 			if self.kind == "BIAS":
 				si.rebin(10, method="max")
-				si.set_z(0.0, 2.0)
+				si.set_z(0.0, 4.0)
 			elif self.kind == "DARK":
 				si.rebin(10, method="mean")
-				si.set_z(0.0, 5.0)
+				si.set_z(-1.0, 1.0)
 			else:
 				si.rebin(10, method="mean")
-				si.set_z(10000, 22000)
+				si.set_z(10000, 25000)
 				
 			f2n.draw_sky_image(ax, si)
 		
@@ -133,7 +133,7 @@ class CheckMos(object):
 		"""
 
 
-def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None):
+def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 	"""Update the mosaic-checkplots for the specified kind of files.
 	
 	kind can be "BIAS", "DARK", "SKYFLAT"
@@ -161,12 +161,15 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None):
 		
 		fitsdir = os.path.join(kidsdir, firstdir, "run_{}".format(runid), seconddir)
 		outpath = os.path.join(workdir, kind, "{}.png".format(runid))
+		if not redo:
+			if os.path.exists(outpath):
+				continue
 		
 		checkmos = CheckMos(fitsdir, outpath, kind)
 		checkmos.make_png()
 
 
-def update_illum_correction(kidsdir, workdir, lastn=None):
+def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
 	"""This just copies the existing png"""
 	
 	logger.info("Updating illumination-correction plots...")
@@ -180,12 +183,15 @@ def update_illum_correction(kidsdir, workdir, lastn=None):
 	for runid in fs.runids:
 		infilepath = os.path.join(kidsdir, "r_SDSS", "run_{}".format(runid), "STANDARD_r_SDSS", "illum_correction_0", "residuals.png")
 		outfilepath = os.path.join(subworkdir, "{}.png".format(runid))
+		if not redo:
+			if os.path.exists(outfilepath):
+				continue
 		logger.info("Copying '{}'...".format(infilepath))
 		shutil.copy(infilepath, outfilepath)
 		
 
-def update_zeropoint_calib(kidsdir, workdir, lastn=None):
-	"""This just copies the existing png"""
+def update_zeropoint_calib(kidsdir, workdir, lastn=None, redo=False):
+	"""This crops the existing png"""
 	
 	logger.info("Updating zeropoint-calib plots...")
 
@@ -198,32 +204,85 @@ def update_zeropoint_calib(kidsdir, workdir, lastn=None):
 	for runid in fs.runids:
 		infilepath = os.path.join(kidsdir, "r_SDSS", "run_{}".format(runid), "STANDARD_r_SDSS", "calib", "night_0_r_SDSS_result.png")	
 		outfilepath = os.path.join(subworkdir, "{}.png".format(runid))
-		logger.info("Copying '{}'...".format(infilepath))
-		shutil.copy(infilepath, outfilepath)
+		if not redo:
+			if os.path.exists(outfilepath):
+				continue
+		
+		logger.info("Croping '{}'...".format(infilepath))
+		#shutil.copy(infilepath, outfilepath)
+		
+		# Using os.system to ensure compatibility with old pythons...
+		cmd = "convert {} -crop '1386x381+110+393' -resize '70%' {}".format(infilepath, outfilepath)
+		os.system(cmd)
 
 
 
+def update_composite(workdir, lastn=None, redo=False):
+	
+	logger.info("Updating composite images...")
+	
+	subworkdir = os.path.join(workdir, "COMPOSITE")
+	if not os.path.exists(subworkdir):
+		os.makedirs(subworkdir)
 
-def update_all(kidsdir, workdir, lastn=None):
+	# Determining run-ids to be processed	
+	runids = sorted(list(set([os.path.splitext(os.path.basename(path))[0] for path in glob.glob(os.path.join(workdir, "BIAS", "*.png"))])))
+	if not redo:
+		done_runids = sorted(list(set([os.path.splitext(os.path.basename(path))[0] for path in glob.glob(os.path.join(workdir, "COMPOSITE", "*.png"))])))
+		runids = sorted(list(set(runids) - set(done_runids)))
+	if len(runids) == 0:
+		logger.info("No new files to process")
+		return
+
+	frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT", "ZPCALIB"]
+	#frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT"]
+	
+	
+	for runid in runids:
+		logger.info("Assembling composite for '{}'...".format(runid))
+		for frame in frames:
+			framepath = os.path.join(workdir, frame, "{}.png".format(runid))
+			if not os.path.exists(framepath):
+				logger.warning("Cannot assemble composite for '{}', as file '{}' does not exist.".format(runid, framepath))
+				
+		outpath = os.path.join(workdir, "COMPOSITE", "{}.png".format(runid))
+		inpaths = [os.path.join(workdir, frame, "{}.png".format(runid)) for frame in frames]
+		inpaths_txt = " ".join(inpaths)
+		
+		cmd = "montage -background '#DDDDDD' -geometry +2+2 -tile x2 {} {}".format(inpaths_txt, outpath)
+		os.system(cmd)
+		cmd = "convert -crop '1744x1086+0+0' {} {}".format(outpath, outpath)
+		os.system(cmd)
+		
+		logger.info("Wrote '{}'".format(outpath))
+
+	
+
+def update_all(kidsdir, workdir, lastn=None, redo=False):
 	"""Generates QC images for all available runs
 	
 	"""
 	logger.info("Updating QC images in '{}' based on the content of '{}'...".format(workdir, kidsdir))
 	
 	# Masterbias
-	#update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn)
+	update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn, redo=redo)
 	
 	# Masterdark
-	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn)
+	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn, redo=redo)
 
 	# Skyflat
-	update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn)
+	update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn, redo=redo)
 
 	# Illumination correction
-	update_illum_correction(kidsdir, workdir, lastn)
+	update_illum_correction(kidsdir, workdir, lastn=lastn, redo=redo)
 
 	# Zp calib
-	update_zeropoint_calib(kidsdir, workdir, lastn)
+	update_zeropoint_calib(kidsdir, workdir, lastn=lastn, redo=redo)
+
+	# And the composite
+	update_composite(workdir, lastn=lastn, redo=redo)
+	
+	logger.info("Done with all updates")
 
 
 def main():
@@ -234,17 +293,18 @@ def main():
 	parser.add_argument("-w", "--workdir", default=None, help="Path to a directory in which the QC stuff can be kept")
 	parser.add_argument("--kidsdir", default=None, help="Path to directory containing the KIDS pre-reduction files")
 	parser.add_argument("-n", "--lastn", default=None, type=int, help="Process only the last LASTN runs (good for tests)")
-	
+	parser.add_argument("-r", "--redo", action="store_true", help="Reprocess checkplots even if they already exist")
+               
 	args = parser.parse_args()
 	
 	# Some default values
 	if not args.workdir:
-		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KIDS_prered_QC"
+		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KiDS_prered_QC"
 	if not args.kidsdir:
 		args.kidsdir = "/vol/kraid2/kraid2/terben/KIDS_V1.0.0"
 	
-	
-	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn)
+	#print(args)
+	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn, redo=args.redo)
 	
 
 if __name__ == "__main__":
