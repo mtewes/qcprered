@@ -1,5 +1,7 @@
 """
-Module to generate quality-control (QC) checkplots for the prereduction of KiDS, on a run-by-run basis
+Module to generate quality-control (QC) checkplots for the prereduction of KiDS, on a run-by-run basis.
+
+Run `python qcpredred.py -h` for help.
 
 In case of questions, contact me, Malte Tewes, at mtewes@astro.uni-bonn.de 
 """
@@ -11,13 +13,19 @@ import re
 import sky_image_plot as f2n
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
 class FileStructure(object):
+	"""Class to represent the filestructure of the different runs.
+	
+	OK, the author realized afterwards that the motivation for such a class would be a total overkill.
+	So we're just getting a list of runids here.
+	"""
 	
 	def __init__(self, dirpath=None, runids=None):
 		self.dirpath = dirpath
@@ -50,36 +58,61 @@ class FileStructure(object):
 	
 
 class CheckMos(object):
-	def __init__(self, dirpath, pngpath, kind):
-		self.dirpath = dirpath
-		self.pngpath = pngpath
-		self.kind = kind # BIAS or DARK or SKYFLAT
+	def __init__(self, dirpath, filename_template, chip_width, chip_height, n_chip_horizontal, n_chip_vertical):
+		"""
+		Class to produce mosaic checkplots for frames taken by multi-chip cameras.
 		
+		- dirpath: path to the directory containing the FITS files from all the chips.
+		- filename_template: string like "BIAS_{}.fits" that will be used with a glob to get the FITS files. The "{}" gets replaced by the chip number.
+			
+		"""
+		self.dirpath = dirpath
+		self.filename_template = filename_template
 	
-	def make_png(self):
+		self.chip_width = chip_width
+		self.chip_height = chip_height
+		self.n_chip_horizontal = n_chip_horizontal
+		self.n_chip_vertical = n_chip_vertical
+	
+		self.set_theli_layout()
+	
+	
+	def set_theli_layout(self):
+		"""
+		Sets 2 lists: one with the chip numbers, and one that contains the "third arguments" to matplotlib subplot
+		"""
+		logger.debug("Setting chip layout for {} x {} (horizontal x vertical) chips...".format(self.n_chip_horizontal, self.n_chip_vertical))
+		
+		self.chip_ids = list(range(1, self.n_chip_horizontal * self.n_chip_vertical + 1))
+		chiplines = []	
+		for i in range(self.n_chip_vertical):
+			chiplines.append(list(range(i*self.n_chip_horizontal+1, (i+1)*self.n_chip_horizontal+1)))
+		self.chip_positions = [p for chipline in chiplines[::-1] for p in chipline]
+		
+		logger.debug("chip_positions: {}".format(self.chip_positions))
+			
+		assert len(self.chip_positions) == len(self.chip_ids)
+		
+		# This is how Omegacam is documented:
+		#self.chip_ids = list(range(1, 33))
+		#self.chip_positions = [25, 26, 27, 28, 17, 18, 19, 20, 9, 10, 11, 12, 1, 2, 3, 4, 29, 30, 31, 32, 21, 22, 23, 24, 13, 14, 15, 16, 5, 6, 7, 8]
+	
+	
+	def make_png(self, pngpath, kind="FULL", scale=1000, pixelbin=10, title=None):
+		"""	
+		
+		- pngpath: path to the png to be saved
+		- kind: "BIAS" or "DARK" or "FLAT". Selects different methods to define the grayscale.
+		- scale is in pixel per inch
+		- pixelbin is in pixel
+		- title: Is written on top of the png.
+		
+		"""
 		
 		logger.info("Making png of '{}'...".format(self.dirpath))
-		
-		# Arrangement of the 32 OmegaCAM chips
-		chipids = list(range(1, 33))
-		chipposs = [25, 26, 27, 28, 17, 18, 19, 20, 9, 10, 11, 12, 1, 2, 3, 4, 29, 30, 31, 32, 21, 22, 23, 24, 13, 14, 15, 16, 5, 6, 7, 8]
-		
-		#chipids = [1, 7, 10]
-		#chipposs = [25, 19, 10]
-		
-		assert len(chipposs) == len(chipids)
-		
-		if self.kind == "SKYFLAT":
-			fitsprefix = "SKYFLAT_r_SDSS"
-		else:
-			fitsprefix = self.kind
-		
-		chipw = 2040
-		chiph = 4050
-		scale = 3000.0
-		figw = chipw * 8 / scale
-		figh = chiph * 4 / scale
-		
+			
+		figw = self.n_chip_horizontal * self.chip_width / scale
+		figh = self.n_chip_vertical * self.chip_height / scale
 		
 		subplotpars = matplotlib.figure.SubplotParams(
 			left = 0.0,
@@ -91,62 +124,75 @@ class CheckMos(object):
 		)
 		fig = plt.figure(figsize=(figw, figh), subplotpars=subplotpars)
 		
-		for (i, chippos) in enumerate(chipposs):
-			chipid = chipids[i]
-			ax = fig.add_subplot(4, 8, chippos)
+		for (i, chippos) in enumerate(self.chip_positions):
+			chipid = self.chip_ids[i]
+			ax = fig.add_subplot(self.n_chip_vertical, self.n_chip_horizontal, chippos)
 			ax.set_axis_off()
 			
-			ia = f2n.read_fits(os.path.join(self.dirpath, "{}_{}.fits".format(fitsprefix, chipid)))
+			ia = f2n.read_fits(os.path.join(self.dirpath, self.filename_template.format(chipid)))
 			si = f2n.SkyImage(ia)
-			if self.kind == "BIAS":
-				si.rebin(10, method="max")
+			if kind == "BIAS":
+				si.rebin(pixelbin, method="max")
 				si.set_z(0.0, 4.0)
-			elif self.kind == "DARK":
-				si.rebin(10, method="mean")
+				if not title: title = "BIAS, linear [0, 4]"
+			elif kind == "DARK":
+				si.rebin(pixelbin)
 				si.set_z(-1.0, 1.0)
+				if not title: title = "DARK, linear [-1, 1]"
+			elif kind == "FLAT":
+				si.rebin(pixelbin)
+				si.data /= np.median(si.data)
+				si.set_z(0.98, 1.02)
+				if not title: title = "FLAT, linear [0.98, 1.02]*med(chip)"
 			else:
-				si.rebin(10, method="mean")
-				si.set_z(10000, 25000)
+				si.rebin(pixelbin)
+				si.set_z(0, 65536)
 				
 			f2n.draw_sky_image(ax, si)
 		
 			ax.text(0.5, 0.1, "{}".format(chipid),
 				horizontalalignment='center', verticalalignment='center', transform=ax.transAxes,
-				color="red", fontsize=16)
+				color="yellow", fontsize=12)
 		
-		fig.text(0.5, 0.95, self.kind,
-				horizontalalignment='center', verticalalignment='center', color="red", fontsize=18)
-		
+		if title != None:
+			fig.text(0.5, 0.95, title,
+				horizontalalignment='center', verticalalignment='center', color="yellow", fontsize=16)
 		
 		#fig.savefig(self.pngpath, bbox_inches='tight')
-		fig.savefig(self.pngpath)
+		fig.savefig(pngpath)
 		
-		
-		"""
-		for 
-		
-		
-		image_array = f2n.read_fits(self.fitspath)
-		sf = f2n.SimpleFigure(image_array, z1=0.0, z2=1.0, scale=0.1, withframe=False)
-		sf.draw()
-		sf.save_to_file(self.pngpath)
-		"""
 
 
 def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 	"""Update the mosaic-checkplots for the specified kind of files.
 	
-	kind can be "BIAS", "DARK", "SKYFLAT"
+	kind can be "BIAS", "DARK", "SKYFLAT", "SUPERFLAT"
 	
 	lastn: if specified, I only run on the lastn last runids (for tests).
 	"""
 	
 	logger.info("Updating mosaic-checkplots for {}...".format(kind))
 	
-	
-	if kind == "SKYFLAT":
+	if kind == "BIAS":
+		firstdir = "BIAS"
+		seconddir = "BIAS"
+		pngkind = "BIAS"
+		filename_template = "BIAS_{}.fits"
+	elif kind == "DARK":
+		firstdir = "DARK"
+		seconddir = "DARK"
+		pngkind = "DARK"
+		filename_template = "DARK_{}.fits"
+	elif kind == "SKYFLAT":
 		firstdir = "r_SDSS"
 		seconddir = "SKYFLAT_r_SDSS"
+		pngkind = "FLAT"
+		filename_template = "SKYFLAT_r_SDSS_{}.fits"
+	elif kind == "SUPERFLAT":
+		firstdir = "r_SDSS"
+		seconddir = "SCIENCE_r_SDSS"
+		pngkind = "FLAT"
+		filename_template = "SCIENCE_r_SDSS_{}.fits"
 	else:
 		firstdir = kind
 		seconddir = kind
@@ -165,8 +211,9 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 			if os.path.exists(outpath):
 				continue
 		
-		checkmos = CheckMos(fitsdir, outpath, kind)
-		checkmos.make_png()
+		checkmos = CheckMos(fitsdir, filename_template,
+			chip_width=2040, chip_height=4050, n_chip_horizontal=8, n_chip_vertical=4)
+		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10)
 
 
 def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
@@ -234,7 +281,7 @@ def update_composite(workdir, lastn=None, redo=False):
 		logger.info("No new files to process")
 		return
 
-	frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT", "ZPCALIB"]
+	frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT", "SUPERFLAT", "ZPCALIB"]
 	#frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT"]
 	
 	
@@ -251,7 +298,7 @@ def update_composite(workdir, lastn=None, redo=False):
 		
 		cmd = "montage -background '#DDDDDD' -geometry +2+2 -tile x2 {} {}".format(inpaths_txt, outpath)
 		os.system(cmd)
-		cmd = "convert -crop '1744x1086+0+0' {} {}".format(outpath, outpath)
+		cmd = "convert -crop '2010x1086+0+0' {} {}".format(outpath, outpath)
 		os.system(cmd)
 		
 		logger.info("Wrote '{}'".format(outpath))
@@ -264,14 +311,18 @@ def update_all(kidsdir, workdir, lastn=None, redo=False):
 	"""
 	logger.info("Updating QC images in '{}' based on the content of '{}'...".format(workdir, kidsdir))
 	
+	
 	# Masterbias
 	update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn, redo=redo)
 	
 	# Masterdark
 	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn, redo=redo)
-
+	
 	# Skyflat
 	update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn, redo=redo)
+
+	# Superflat
+	update_checkmos(kidsdir, workdir, kind="SUPERFLAT", lastn=lastn, redo=redo)
 
 	# Illumination correction
 	update_illum_correction(kidsdir, workdir, lastn=lastn, redo=redo)
@@ -283,6 +334,7 @@ def update_all(kidsdir, workdir, lastn=None, redo=False):
 	update_composite(workdir, lastn=lastn, redo=redo)
 	
 	logger.info("Done with all updates")
+	
 
 
 def main():
