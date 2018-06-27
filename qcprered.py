@@ -136,7 +136,12 @@ class CheckMos(object):
 			ax = fig.add_subplot(self.n_chip_vertical, self.n_chip_horizontal, chippos)
 			ax.set_axis_off()
 			
-			ia = f2n.read_fits(os.path.join(self.dirpath, self.filename_template.format(chipid)))
+			try:
+				chippath = os.path.join(self.dirpath, self.filename_template.format(chipid))
+				ia = f2n.read_fits(chippath)
+			except IOError:
+				logger.warning("Could not find '{}', usign zero image...".format(chippath))
+				ia = np.zeros((self.chip_width, self.chip_height))
 			si = f2n.SkyImage(ia)
 			if kind == "BIAS":
 				si.rebin(pixelbin, method="max")
@@ -251,8 +256,11 @@ def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
 			if os.path.exists(outfilepath):
 				continue
 		logger.info("Copying '{}'...".format(infilepath))
-		shutil.copy(infilepath, outfilepath)
-		
+		try:
+			shutil.copy(infilepath, outfilepath)
+		except IOError:
+			logger.warning("File '{}' could not be read, using dummy png instead...".format(infilepath))
+			shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
 def update_zeropoint_calib(kidsdir, workdir, lastn=None, redo=False):
 	"""This crops the existing png"""
