@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class FileStructure(object):
 	"""Class to represent the filestructure of the different runs.
 	
-	OK, the author realized afterwards that the motivation for such a class would be a total overkill.
+	OK, the author realized afterwards that the motivation for such a class was a total overkill.
 	So we're just getting a list of runids here.
 	"""
 	
@@ -31,7 +31,15 @@ class FileStructure(object):
 		self.dirpath = dirpath
 		self.runids = runids
 	
-	
+	def keep_only(self, lastn):
+		"""Keep only the lastn last runids
+		
+		"""
+		if lastn is not None:
+			self.runids = self.runids[-lastn:]
+			logger.info("Keeping only the last {} run-ids: {}".format(lastn, self.runids))
+			
+
 	@classmethod
 	def explore(cls, dirpath, lastn=None):
 		"""Returns a FileStructure object containing the runids found in the dirpath.
@@ -48,13 +56,12 @@ class FileStructure(object):
 		runids = sorted([match.group(1) for match in matches if match != None])
 		
 		logger.info("Matched {} run-ids".format(len(runids)))
+			
+		newfs = cls(dirpath, runids)
+		newfs.keep_only(lastn)
 		
-		if lastn:
-			runids = runids[-lastn:]
-			logger.info("Keeping only the last {} run-ids: {}".format(lastn, runids))
-		
-		return cls(dirpath, runids)
-		
+		return newfs	
+	
 	
 
 class CheckMos(object):
@@ -98,7 +105,7 @@ class CheckMos(object):
 		#self.chip_positions = [25, 26, 27, 28, 17, 18, 19, 20, 9, 10, 11, 12, 1, 2, 3, 4, 29, 30, 31, 32, 21, 22, 23, 24, 13, 14, 15, 16, 5, 6, 7, 8]
 	
 	
-	def make_png(self, pngpath, kind="FULL", scale=1000, pixelbin=10, title=None):
+	def make_png(self, pngpath, kind="FULL", scale=1000, pixelbin=10, title=None, subtitle=None):
 		"""	
 		
 		- pngpath: path to the png to be saved
@@ -134,16 +141,16 @@ class CheckMos(object):
 			if kind == "BIAS":
 				si.rebin(pixelbin, method="max")
 				si.set_z(0.0, 4.0)
-				if not title: title = "BIAS, linear [0, 4]"
+				if not subtitle: subtitle = "linear [0, 4]"
 			elif kind == "DARK":
 				si.rebin(pixelbin)
 				si.set_z(-1.0, 1.0)
-				if not title: title = "DARK, linear [-1, 1]"
+				if not subtitle: subtitle = "linear [-1, 1]"
 			elif kind == "FLAT":
 				si.rebin(pixelbin)
 				si.data /= np.median(si.data)
 				si.set_z(0.98, 1.02)
-				if not title: title = "FLAT, linear [0.98, 1.02]*med(chip)"
+				if not subtitle: subtitle = "linear [0.98, 1.02]*med(chip)"
 			else:
 				si.rebin(pixelbin)
 				si.set_z(0, 65536)
@@ -153,10 +160,16 @@ class CheckMos(object):
 			ax.text(0.5, 0.1, "{}".format(chipid),
 				horizontalalignment='center', verticalalignment='center', transform=ax.transAxes,
 				color="yellow", fontsize=12)
-		
+
 		if title != None:
 			fig.text(0.5, 0.95, title,
 				horizontalalignment='center', verticalalignment='center', color="yellow", fontsize=16)
+		
+		if subtitle != None:
+			fig.text(0.5, 0.9, subtitle,
+				horizontalalignment='center', verticalalignment='center', color="yellow", fontsize=12)
+		
+		
 		
 		#fig.savefig(self.pngpath, bbox_inches='tight')
 		fig.savefig(pngpath)
@@ -178,20 +191,24 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 		seconddir = "BIAS"
 		pngkind = "BIAS"
 		filename_template = "BIAS_{}.fits"
+		title = "BIAS"
 	elif kind == "DARK":
 		firstdir = "DARK"
 		seconddir = "DARK"
 		pngkind = "DARK"
 		filename_template = "DARK_{}.fits"
+		title = "DARK"
 	elif kind == "SKYFLAT":
 		firstdir = "r_SDSS"
 		seconddir = "SKYFLAT_r_SDSS"
 		pngkind = "FLAT"
+		title = "SKYFLAT_r_SDSS"
 		filename_template = "SKYFLAT_r_SDSS_{}.fits"
 	elif kind == "SUPERFLAT":
 		firstdir = "r_SDSS"
 		seconddir = "SCIENCE_r_SDSS"
 		pngkind = "FLAT"
+		title = "SUPERFLAT SCIENCE_r_SDSS"
 		filename_template = "SCIENCE_r_SDSS_{}.fits"
 	else:
 		firstdir = kind
@@ -213,7 +230,7 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 		
 		checkmos = CheckMos(fitsdir, filename_template,
 			chip_width=2040, chip_height=4050, n_chip_horizontal=8, n_chip_vertical=4)
-		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10)
+		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, title=title)
 
 
 def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
@@ -277,15 +294,14 @@ def update_composite(workdir, lastn=None, redo=False):
 	if not redo:
 		done_runids = sorted(list(set([os.path.splitext(os.path.basename(path))[0] for path in glob.glob(os.path.join(workdir, "COMPOSITE", "*.png"))])))
 		runids = sorted(list(set(runids) - set(done_runids)))
-	if len(runids) == 0:
-		logger.info("No new files to process")
-		return
+	
+	fs = FileStructure(".", runids)
+	fs.keep_only(lastn)
 
 	frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT", "SUPERFLAT", "ZPCALIB"]
-	#frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT"]
 	
 	
-	for runid in runids:
+	for runid in fs.runids:
 		logger.info("Assembling composite for '{}'...".format(runid))
 		for frame in frames:
 			framepath = os.path.join(workdir, frame, "{}.png".format(runid))
