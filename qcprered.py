@@ -235,7 +235,7 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 		
 		checkmos = CheckMos(fitsdir, filename_template,
 			chip_width=2040, chip_height=4050, n_chip_horizontal=8, n_chip_vertical=4)
-		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, title=title)
+		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, title=title+" {}".format(runid))
 
 
 def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
