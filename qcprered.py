@@ -407,7 +407,7 @@ def main():
 	
 	# Some default values
 	if not args.workdir:
-		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KiDS_prered_QC_2"
+		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KiDS_prered_QC"
 	if not args.kidsdir:
 		args.kidsdir = "/vol/kraid2/kraid2/terben/KIDS_V1.0.0"
 	
