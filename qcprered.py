@@ -181,7 +181,7 @@ class CheckMos(object):
 		
 
 
-def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
+def update_checkmos(kidsdir, workdir, filtername=None, kind="BIAS", lastn=None, redo=False):
 	"""Update the mosaic-checkplots for the specified kind of files.
 	
 	kind can be "BIAS", "DARK", "SKYFLAT", "SUPERFLAT"
@@ -190,6 +190,9 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 	"""
 	
 	logger.info("Updating mosaic-checkplots for {}...".format(kind))
+	
+	if (filtername is None) and (not kind in ["BIAS", "DARK"]):
+		raise ValueError("Specify a filtername!")
 	
 	if kind == "BIAS":
 		firstdir = "BIAS"
@@ -204,17 +207,17 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 		filename_template = "DARK_{}.fits"
 		title = "DARK"
 	elif kind == "SKYFLAT":
-		firstdir = "r_SDSS"
-		seconddir = "SKYFLAT_r_SDSS"
+		firstdir = filtername
+		seconddir = "SKYFLAT_{}".format(filtername)
 		pngkind = "FLAT"
-		title = "SKYFLAT_r_SDSS"
-		filename_template = "SKYFLAT_r_SDSS_{}.fits"
+		title = "SKYFLAT_{}".format(filtername)
+		filename_template = "SKYFLAT_{}_{{}}.fits".format(filtername)
 	elif kind == "SUPERFLAT":
-		firstdir = "r_SDSS"
-		seconddir = "SCIENCE_r_SDSS"
+		firstdir = filtername
+		seconddir = "SCIENCE_{}".format(filtername)
 		pngkind = "FLAT"
-		title = "SUPERFLAT SCIENCE_r_SDSS"
-		filename_template = "SCIENCE_r_SDSS_{}.fits"
+		title = "SUPERFLAT SCIENCE_{}".format(filtername)
+		filename_template = "SCIENCE_{}_{{}}.fits".format(filtername)
 	else:
 		firstdir = kind
 		seconddir = kind
@@ -222,13 +225,18 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 	fs = FileStructure.explore(os.path.join(kidsdir, firstdir), lastn=lastn)
 	logger.info("Starting to loop over {} run-ids...".format(len(fs.runids)))
 	
-	if not os.path.exists(os.path.join(workdir, kind)):
-		os.makedirs(os.path.join(workdir, kind))
+	if filtername is None:
+		outdir = os.path.join(workdir, kind)
+	else:
+		outdir = os.path.join(workdir, "{}_{}".format(kind, filtername))
+	if not os.path.exists(outdir):
+		os.makedirs(outdir)
 	
 	for runid in fs.runids:
 		
 		fitsdir = os.path.join(kidsdir, firstdir, "run_{}".format(runid), seconddir)
-		outpath = os.path.join(workdir, kind, "{}.png".format(runid))
+		outpath = os.path.join(outdir, "{}.png".format(runid))
+	
 		if not redo:
 			if os.path.exists(outpath):
 				continue
@@ -238,19 +246,19 @@ def update_checkmos(kidsdir, workdir, kind="BIAS", lastn=None, redo=False):
 		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, title=title+" {}".format(runid))
 
 
-def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
+def update_illum_correction(kidsdir, workdir, filtername, lastn=None, redo=False):
 	"""This just copies the existing png"""
 	
-	logger.info("Updating illumination-correction plots...")
+	logger.info("Updating illumination-correction plots for filter '{}'...".format(filtername))
 
-	fs = FileStructure.explore(os.path.join(kidsdir, "r_SDSS"), lastn=lastn)
+	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn)
 	
-	subworkdir = os.path.join(workdir, "ILLUMCOR")
+	subworkdir = os.path.join(workdir, "ILLUMCOR_"+filtername)
 	if not os.path.exists(subworkdir):
 		os.makedirs(subworkdir)
 	
 	for runid in fs.runids:
-		infilepath = os.path.join(kidsdir, "r_SDSS", "run_{}".format(runid), "STANDARD_r_SDSS", "illum_correction_0", "residuals.png")
+		infilepath = os.path.join(kidsdir, filtername, "run_{}".format(runid), "STANDARD_"+filtername, "illum_correction_0", "residuals.png")
 		outfilepath = os.path.join(subworkdir, "{}.png".format(runid))
 		if not redo:
 			if os.path.exists(outfilepath):
@@ -260,21 +268,21 @@ def update_illum_correction(kidsdir, workdir, lastn=None, redo=False):
 			shutil.copy(infilepath, outfilepath)
 		except IOError:
 			logger.warning("File '{}' could not be read, using dummy png instead...".format(infilepath))
-			shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
+			#shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
-def update_zeropoint_calib(kidsdir, workdir, lastn=None, redo=False):
+def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False):
 	"""This crops the existing png"""
 	
-	logger.info("Updating zeropoint-calib plots...")
+	logger.info("Updating zeropoint-calib plots for filter '{}'...".format(filtername))
 
-	fs = FileStructure.explore(os.path.join(kidsdir, "r_SDSS"), lastn=lastn)
+	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn)
 	
-	subworkdir = os.path.join(workdir, "ZPCALIB")
+	subworkdir = os.path.join(workdir, "ZPCALIB_"+filtername)
 	if not os.path.exists(subworkdir):
 		os.makedirs(subworkdir)
 	
 	for runid in fs.runids:
-		infilepath = os.path.join(kidsdir, "r_SDSS", "run_{}".format(runid), "STANDARD_r_SDSS", "calib", "night_0_r_SDSS_result.png")	
+		infilepath = os.path.join(kidsdir, filtername, "run_{}".format(runid), "STANDARD_"+filtername, "calib", "night_0_{}_result.png".format(filtername))	
 		outfilepath = os.path.join(subworkdir, "{}.png".format(runid))
 		if not redo:
 			if os.path.exists(outfilepath):
@@ -284,16 +292,21 @@ def update_zeropoint_calib(kidsdir, workdir, lastn=None, redo=False):
 		#shutil.copy(infilepath, outfilepath)
 		
 		# Using os.system to ensure compatibility with old pythons...
-		cmd = "convert {} -crop '1386x381+110+393' -resize '70%' {}".format(infilepath, outfilepath)
-		os.system(cmd)
+		if os.path.exists(infilepath):
+			cmd = "convert {} -crop '1386x381+110+393' -resize '70%' {}".format(infilepath, outfilepath)
+			os.system(cmd)
+		else:
+			logger.warning("File '{}' could not be found, using dummy png instead...".format(infilepath))
+			#shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
 
 
-def update_composite(workdir, lastn=None, redo=False):
+
+def update_composite(workdir, filtername, lastn=None, redo=False):
 	
 	logger.info("Updating composite images...")
 	
-	subworkdir = os.path.join(workdir, "COMPOSITE")
+	subworkdir = os.path.join(workdir, "COMPOSITE_{}".format(filtername))
 	if not os.path.exists(subworkdir):
 		os.makedirs(subworkdir)
 
@@ -306,17 +319,22 @@ def update_composite(workdir, lastn=None, redo=False):
 	fs = FileStructure(".", runids)
 	fs.keep_only(lastn)
 
-	frames = ["BIAS", "DARK", "ILLUMCOR", "SKYFLAT", "SUPERFLAT", "ZPCALIB"]
+	frames = ["BIAS", "DARK", "ILLUMCOR_"+filtername, "SKYFLAT_"+filtername, "SUPERFLAT_"+filtername, "ZPCALIB_"+filtername]
 	
 	
 	for runid in fs.runids:
 		logger.info("Assembling composite for '{}'...".format(runid))
+		all_frames_available = True
 		for frame in frames:
 			framepath = os.path.join(workdir, frame, "{}.png".format(runid))
 			if not os.path.exists(framepath):
+				all_frames_available = False
 				logger.warning("Cannot assemble composite for '{}', as file '{}' does not exist.".format(runid, framepath))
+		
+		if not all_frames_available:
+			continue
 				
-		outpath = os.path.join(workdir, "COMPOSITE", "{}.png".format(runid))
+		outpath = os.path.join(subworkdir, "{}.png".format(runid))
 		inpaths = [os.path.join(workdir, frame, "{}.png".format(runid)) for frame in frames]
 		inpaths_txt = " ".join(inpaths)
 		
@@ -329,12 +347,16 @@ def update_composite(workdir, lastn=None, redo=False):
 
 	
 
-def update_all(kidsdir, workdir, lastn=None, redo=False):
+def update_all(kidsdir, workdir, filternames=None, lastn=None, redo=False):
 	"""Generates QC images for all available runs
 	
 	"""
 	logger.info("Updating QC images in '{}' based on the content of '{}'...".format(workdir, kidsdir))
 	
+	if not filternames:
+		filternames = []
+		logger.warning("No filters specified, will not update all plots!")
+
 	
 	# Masterbias
 	update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn, redo=redo)
@@ -342,20 +364,24 @@ def update_all(kidsdir, workdir, lastn=None, redo=False):
 	# Masterdark
 	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn, redo=redo)
 	
-	# Skyflat
-	update_checkmos(kidsdir, workdir, kind="SKYFLAT", lastn=lastn, redo=redo)
+	for filtername in filternames:
+	
+		logger.info("Starting updates of filter '{}'...".format(filtername))
+		
+		# Skyflat
+		update_checkmos(kidsdir, workdir, kind="SKYFLAT", filtername=filtername, lastn=lastn, redo=redo)
 
-	# Superflat
-	update_checkmos(kidsdir, workdir, kind="SUPERFLAT", lastn=lastn, redo=redo)
+		# Superflat
+		update_checkmos(kidsdir, workdir, kind="SUPERFLAT", filtername=filtername, lastn=lastn, redo=redo)
 
-	# Illumination correction
-	update_illum_correction(kidsdir, workdir, lastn=lastn, redo=redo)
+		# Illumination correction
+		update_illum_correction(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo)
 
-	# Zp calib
-	update_zeropoint_calib(kidsdir, workdir, lastn=lastn, redo=redo)
+		# Zp calib
+		update_zeropoint_calib(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo)
 
-	# And the composite
-	update_composite(workdir, lastn=lastn, redo=redo)
+		# And the composite
+		update_composite(workdir, filtername=filtername, lastn=lastn, redo=redo)
 	
 	logger.info("Done with all updates")
 	
@@ -364,23 +390,30 @@ def update_all(kidsdir, workdir, lastn=None, redo=False):
 def main():
 	
 	import argparse
+	
+	allfilters = ["u", "g", "r", "i", "z"]
+	
 
 	parser = argparse.ArgumentParser(description='Make QC checkplots of the pre-reduction')
 	parser.add_argument("-w", "--workdir", default=None, help="Path to a directory in which the QC stuff can be kept")
 	parser.add_argument("--kidsdir", default=None, help="Path to directory containing the KIDS pre-reduction files")
 	parser.add_argument("-n", "--lastn", default=None, type=int, help="Process only the last LASTN runs (good for tests)")
 	parser.add_argument("-r", "--redo", action="store_true", help="Reprocess checkplots even if they already exist")
+	parser.add_argument("-f", "--filter", default=allfilters, choices=allfilters, help="Which filter among {u, g, r, i, z} to process (default: all)")
                
 	args = parser.parse_args()
+	args.filter = list(args.filter) # To have ["r"] instead of "r".
+	args.filter = ["{}_SDSS".format(f) for f in args.filter] # Adding "_SDSS" to all filternames.
 	
 	# Some default values
 	if not args.workdir:
-		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KiDS_prered_QC"
+		args.workdir = "/vol/fohlen11/fohlen11_1/mtewes/KiDS_prered_QC_2"
 	if not args.kidsdir:
 		args.kidsdir = "/vol/kraid2/kraid2/terben/KIDS_V1.0.0"
 	
+		
 	#print(args)
-	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn, redo=args.redo)
+	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn, redo=args.redo, filternames=args.filter)
 	
 
 if __name__ == "__main__":
