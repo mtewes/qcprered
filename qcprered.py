@@ -157,7 +157,7 @@ class CheckMos(object):
 				ia = f2n.read_fits(chippath)
 				is_real_data = True
 			except IOError:
-				logger.warning("Could not find '{}', usign zero image...".format(chippath))
+				logger.info("Could not find '{}', usign zero image...".format(chippath))
 				ia = np.zeros((self.chip_width, self.chip_height))
 				is_real_data = False
 			
@@ -306,8 +306,8 @@ def update_illum_correction(kidsdir, workdir, filtername, lastn=None, redo=False
 		try:
 			shutil.copy(infilepath, outfilepath)
 		except IOError:
-			logger.warning("File '{}' could not be read, using dummy png instead...".format(infilepath))
-			#shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
+			logger.info("File '{}' could not be read, using dummy png instead...".format(infilepath))
+			shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
 def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False, singlerunid=None):
 	"""This crops the existing png"""
@@ -335,8 +335,8 @@ def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False,
 			cmd = "convert {} -crop '1386x381+110+393' -resize '70%' {}".format(infilepath, outfilepath)
 			os.system(cmd)
 		else:
-			logger.warning("File '{}' could not be found, using dummy png instead...".format(infilepath))
-			#shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
+			logger.info("File '{}' could not be found, using dummy png instead...".format(infilepath))
+			shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
 
 
