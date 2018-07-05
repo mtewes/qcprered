@@ -3,7 +3,7 @@ Module to generate quality-control (QC) checkplots for the prereduction of KiDS,
 
 Run `python qcpredred.py -h` for help.
 
-In case of questions, contact me, Malte Tewes, at mtewes@astro.uni-bonn.de 
+In case of questions, contact me, Malte Tewes, mtewes at astro.uni-bonn.de 
 """
 
 import os
@@ -31,20 +31,32 @@ class FileStructure(object):
 		self.dirpath = dirpath
 		self.runids = runids
 	
-	def keep_only(self, lastn):
+	def keep_last(self, lastn):
 		"""Keep only the lastn last runids
 		
 		"""
 		if lastn is not None:
 			self.runids = self.runids[-lastn:]
-			logger.info("Keeping only the last {} run-ids: {}".format(lastn, self.runids))
-			
+			logger.info("Keeping only the last {} run-ids: {}".format(lastn, self.runids))			
+
+	def keep_only(self, singlerunid=None):
+		"""Keep only one specific runid
+		
+		"""
+		if singlerunid is not None:
+			if singlerunid in self.runids:
+				self.runids = [singlerunid]
+			else:
+				logger.info("Can't keep specific run-id '{}', it was not found!".format(singlerunid))
+		
 
 	@classmethod
-	def explore(cls, dirpath, lastn=None):
+	def explore(cls, dirpath, lastn=None, singlerunid=None):
 		"""Returns a FileStructure object containing the runids found in the dirpath.
 		
 		If lastn is not None, I'll consider only the last lastn runids (useful for tests)
+		
+		If runid is specified, I'll keep only this specific runid (if found)
 		"""
 		
 		dirpaths = sorted(glob.glob(os.path.join(dirpath, "*")))
@@ -58,7 +70,8 @@ class FileStructure(object):
 		logger.info("Matched {} run-ids".format(len(runids)))
 			
 		newfs = cls(dirpath, runids)
-		newfs.keep_only(lastn)
+		newfs.keep_last(lastn)
+		newfs.keep_only(singlerunid)
 		
 		return newfs	
 	
@@ -105,14 +118,17 @@ class CheckMos(object):
 		#self.chip_positions = [25, 26, 27, 28, 17, 18, 19, 20, 9, 10, 11, 12, 1, 2, 3, 4, 29, 30, 31, 32, 21, 22, 23, 24, 13, 14, 15, 16, 5, 6, 7, 8]
 	
 	
-	def make_png(self, pngpath, kind="FULL", scale=1000, pixelbin=10, title=None, subtitle=None):
+	def make_png(self, pngpath, kind="FULL", scale=1000, pixelbin=10, binmethod="mean", z1=None, z2=None, title=None, subtitle=None):
 		"""	
 		
 		- pngpath: path to the png to be saved
 		- kind: "BIAS" or "DARK" or "FLAT". Selects different methods to define the grayscale.
 		- scale is in pixel per inch
 		- pixelbin is in pixel
+		- binmethod is either "mean" (default) or "max" or "min"
+		- z1 and z2 give the cuts
 		- title: Is written on top of the png.
+		- subtitle: idem
 		
 		"""
 		
@@ -139,26 +155,22 @@ class CheckMos(object):
 			try:
 				chippath = os.path.join(self.dirpath, self.filename_template.format(chipid))
 				ia = f2n.read_fits(chippath)
+				is_real_data = True
 			except IOError:
 				logger.warning("Could not find '{}', usign zero image...".format(chippath))
 				ia = np.zeros((self.chip_width, self.chip_height))
+				is_real_data = False
+			
 			si = f2n.SkyImage(ia)
-			if kind == "BIAS":
-				si.rebin(pixelbin, method="max")
-				si.set_z(0.0, 4.0)
-				if not subtitle: subtitle = "linear [0, 4]"
-			elif kind == "DARK":
-				si.rebin(pixelbin)
-				si.set_z(-1.0, 1.0)
-				if not subtitle: subtitle = "linear [-1, 1]"
-			elif kind == "FLAT":
-				si.rebin(pixelbin)
+			si.rebin(pixelbin, method=binmethod)
+			
+			if kind == "FLAT" and is_real_data:
 				si.data /= np.median(si.data)
-				si.set_z(0.98, 1.02)
-				if not subtitle: subtitle = "linear [0.98, 1.02]*med(chip)"
+			
+			if is_real_data:
+				si.set_z(z1, z2)
 			else:
-				si.rebin(pixelbin)
-				si.set_z(0, 65536)
+				si.set_z(0.0, 1.0)
 				
 			f2n.draw_sky_image(ax, si)
 		
@@ -174,14 +186,12 @@ class CheckMos(object):
 			fig.text(0.5, 0.9, subtitle,
 				horizontalalignment='center', verticalalignment='center', color="yellow", fontsize=12)
 		
-		
-		
 		#fig.savefig(self.pngpath, bbox_inches='tight')
 		fig.savefig(pngpath)
 		
 
 
-def update_checkmos(kidsdir, workdir, filtername=None, kind="BIAS", lastn=None, redo=False):
+def update_checkmos(kidsdir, workdir, filtername=None, kind="BIAS", lastn=None, redo=False, singlerunid=None):
 	"""Update the mosaic-checkplots for the specified kind of files.
 	
 	kind can be "BIAS", "DARK", "SKYFLAT", "SUPERFLAT"
@@ -200,29 +210,58 @@ def update_checkmos(kidsdir, workdir, filtername=None, kind="BIAS", lastn=None, 
 		pngkind = "BIAS"
 		filename_template = "BIAS_{}.fits"
 		title = "BIAS"
+		binmethod="max"
+		z1 = 0.0
+		z2 = 4.0
+		subtitle = "linear [0, 4]"
+		
 	elif kind == "DARK":
 		firstdir = "DARK"
 		seconddir = "DARK"
 		pngkind = "DARK"
 		filename_template = "DARK_{}.fits"
 		title = "DARK"
+		subtitle = "linear [-1, 1]"
+		binmethod="mean"
+		z1 = -1.0
+		z2 = 1.0
+		
 	elif kind == "SKYFLAT":
 		firstdir = filtername
 		seconddir = "SKYFLAT_{}".format(filtername)
 		pngkind = "FLAT"
-		title = "SKYFLAT_{}".format(filtername)
 		filename_template = "SKYFLAT_{}_{{}}.fits".format(filtername)
+		title = "SKYFLAT_{}".format(filtername)
+		binmethod="mean"
+		if filtername in ["u_SDSS", "i_SDSS", "z_SDSS"]:
+			z1 = 0.9
+			z2 = 1.1	
+		else:
+			z1 = 0.97
+			z2 = 1.03	
+		subtitle = "linear [{}, {}]*med(chip)".format(z1, z2)
+		
+		
 	elif kind == "SUPERFLAT":
 		firstdir = filtername
 		seconddir = "SCIENCE_{}".format(filtername)
 		pngkind = "FLAT"
-		title = "SUPERFLAT SCIENCE_{}".format(filtername)
 		filename_template = "SCIENCE_{}_{{}}.fits".format(filtername)
+		title = "SUPERFLAT SCIENCE_{}".format(filtername)
+		binmethod="mean"
+		if filtername in ["z_SDSS"]:
+			z1 = 0.8
+			z2 = 1.2	
+		else:
+			z1 = 0.97
+			z2 = 1.03	
+		subtitle = "linear [{}, {}]*med(chip)".format(z1, z2)
+
+
 	else:
-		firstdir = kind
-		seconddir = kind
+		raise ValueError("Not implemented.")
 	
-	fs = FileStructure.explore(os.path.join(kidsdir, firstdir), lastn=lastn)
+	fs = FileStructure.explore(os.path.join(kidsdir, firstdir), lastn=lastn, singlerunid=singlerunid)
 	logger.info("Starting to loop over {} run-ids...".format(len(fs.runids)))
 	
 	if filtername is None:
@@ -243,15 +282,15 @@ def update_checkmos(kidsdir, workdir, filtername=None, kind="BIAS", lastn=None, 
 		
 		checkmos = CheckMos(fitsdir, filename_template,
 			chip_width=2040, chip_height=4050, n_chip_horizontal=8, n_chip_vertical=4)
-		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, title=title+" {}".format(runid))
+		checkmos.make_png(outpath, kind=pngkind, scale=3000, pixelbin=10, binmethod=binmethod,  z1=z1, z2=z2, title=title+" {}".format(runid), subtitle=subtitle)
 
 
-def update_illum_correction(kidsdir, workdir, filtername, lastn=None, redo=False):
+def update_illum_correction(kidsdir, workdir, filtername, lastn=None, redo=False, singlerunid=None):
 	"""This just copies the existing png"""
 	
 	logger.info("Updating illumination-correction plots for filter '{}'...".format(filtername))
 
-	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn)
+	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn, singlerunid=singlerunid)
 	
 	subworkdir = os.path.join(workdir, "ILLUMCOR_"+filtername)
 	if not os.path.exists(subworkdir):
@@ -270,12 +309,12 @@ def update_illum_correction(kidsdir, workdir, filtername, lastn=None, redo=False
 			logger.warning("File '{}' could not be read, using dummy png instead...".format(infilepath))
 			#shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), "300px-No_image_available.svg.png"), outfilepath)
 
-def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False):
+def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False, singlerunid=None):
 	"""This crops the existing png"""
 	
 	logger.info("Updating zeropoint-calib plots for filter '{}'...".format(filtername))
 
-	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn)
+	fs = FileStructure.explore(os.path.join(kidsdir, filtername), lastn=lastn, singlerunid=singlerunid)
 	
 	subworkdir = os.path.join(workdir, "ZPCALIB_"+filtername)
 	if not os.path.exists(subworkdir):
@@ -302,7 +341,7 @@ def update_zeropoint_calib(kidsdir, workdir, filtername, lastn=None, redo=False)
 
 
 
-def update_composite(workdir, filtername, lastn=None, redo=False):
+def update_composite(workdir, filtername, lastn=None, redo=False, singlerunid=None):
 	
 	logger.info("Updating composite images...")
 	
@@ -317,7 +356,8 @@ def update_composite(workdir, filtername, lastn=None, redo=False):
 		runids = sorted(list(set(runids) - set(done_runids)))
 	
 	fs = FileStructure(".", runids)
-	fs.keep_only(lastn)
+	fs.keep_last(lastn)
+	fs.keep_only(singlerunid)
 
 	frames = ["BIAS", "DARK", "ILLUMCOR_"+filtername, "SKYFLAT_"+filtername, "SUPERFLAT_"+filtername, "ZPCALIB_"+filtername]
 	
@@ -347,7 +387,7 @@ def update_composite(workdir, filtername, lastn=None, redo=False):
 
 	
 
-def update_all(kidsdir, workdir, filternames=None, lastn=None, redo=False):
+def update_all(kidsdir, workdir, filternames=None, lastn=None, redo=False, singlerunid=None):
 	"""Generates QC images for all available runs
 	
 	"""
@@ -359,29 +399,29 @@ def update_all(kidsdir, workdir, filternames=None, lastn=None, redo=False):
 
 	
 	# Masterbias
-	update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn, redo=redo)
+	update_checkmos(kidsdir, workdir, kind="BIAS", lastn=lastn, redo=redo, singlerunid=singlerunid)
 	
 	# Masterdark
-	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn, redo=redo)
+	update_checkmos(kidsdir, workdir, kind="DARK", lastn=lastn, redo=redo, singlerunid=singlerunid)
 	
 	for filtername in filternames:
 	
 		logger.info("Starting updates of filter '{}'...".format(filtername))
 		
 		# Skyflat
-		update_checkmos(kidsdir, workdir, kind="SKYFLAT", filtername=filtername, lastn=lastn, redo=redo)
+		update_checkmos(kidsdir, workdir, kind="SKYFLAT", filtername=filtername, lastn=lastn, redo=redo, singlerunid=singlerunid)
 
 		# Superflat
-		update_checkmos(kidsdir, workdir, kind="SUPERFLAT", filtername=filtername, lastn=lastn, redo=redo)
+		update_checkmos(kidsdir, workdir, kind="SUPERFLAT", filtername=filtername, lastn=lastn, redo=redo, singlerunid=singlerunid)
 
 		# Illumination correction
-		update_illum_correction(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo)
+		update_illum_correction(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo, singlerunid=singlerunid)
 
 		# Zp calib
-		update_zeropoint_calib(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo)
+		update_zeropoint_calib(kidsdir, workdir, filtername=filtername, lastn=lastn, redo=redo, singlerunid=singlerunid)
 
 		# And the composite
-		update_composite(workdir, filtername=filtername, lastn=lastn, redo=redo)
+		update_composite(workdir, filtername=filtername, lastn=lastn, redo=redo, singlerunid=singlerunid)
 	
 	logger.info("Done with all updates")
 	
@@ -395,12 +435,13 @@ def main():
 	
 
 	parser = argparse.ArgumentParser(description='Make QC checkplots of the pre-reduction')
-	parser.add_argument("-w", "--workdir", default=None, help="Path to a directory in which the QC stuff can be kept")
-	parser.add_argument("--kidsdir", default=None, help="Path to directory containing the KIDS pre-reduction files")
+	parser.add_argument("-w", "--workdir", default=None, help="Path to a directory in which to write the QC images (output)")
+	parser.add_argument("--kidsdir", default=None, help="Path to directory containing the KIDS pre-reduction (input)")
 	parser.add_argument("-n", "--lastn", default=None, type=int, help="Process only the last LASTN runs (good for tests)")
-	parser.add_argument("-r", "--redo", action="store_true", help="Reprocess checkplots even if they already exist")
+	parser.add_argument("-r", "--redo", action="store_true", help="Reprocess and overwrite checkplots even if they already exist")
 	parser.add_argument("-f", "--filter", default=allfilters, choices=allfilters, help="Which filter among {u, g, r, i, z} to process (default: all)")
-               
+ 	parser.add_argument("-s", "--singlerunid", default=None, help="Run only on this particular run-id (e.g.,  '17_07_f')")
+              
 	args = parser.parse_args()
 	args.filter = list(args.filter) # To have ["r"] instead of "r".
 	args.filter = ["{}_SDSS".format(f) for f in args.filter] # Adding "_SDSS" to all filternames.
@@ -413,7 +454,7 @@ def main():
 	
 		
 	#print(args)
-	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn, redo=args.redo, filternames=args.filter)
+	update_all(kidsdir=args.kidsdir, workdir=args.workdir, lastn=args.lastn, redo=args.redo, filternames=args.filter, singlerunid=args.singlerunid)
 	
 
 if __name__ == "__main__":
